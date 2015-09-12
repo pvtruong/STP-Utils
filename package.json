@@ -1,0 +1,34 @@
+{
+  "name": "stp-utils",
+  "version": "0.1.0",
+  "description": "Utils for STP System",
+  "main": "build/Release/stp.node",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pvtruong/stp-utils.git"
+  },
+  "author": {
+    "name": "Pham Van Truong",
+    "url": "@truongpv"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pvtruong/stp-utils/issues"
+  },
+  "homepage": "https://github.com/pvtruong/stp-utils",
+  "scripts": {
+    "install": "node-gyp configure build"
+  },
+  "maintainers": [
+    {
+      "name": "truongpv",
+      "email": "invncur@gmail.com"
+    }
+  ],
+  "readme": "# excel-report\r\n\r\nUtils for STP System\r\n\r\n```\r\nnpm install stp-utils\r\n```\r\n\r\n## Usage\r\n\r\n``` js\r\nvar stp = require('stp-utils')\r\n\r\nvar tb =[\r\n\t{ma_so:'A',gia_tri:10,gia_tri_2:4},\r\n\t{ma_so:'C',gia_tri:2,gia_tri_2:8},\r\n\t{ma_so:'D',cong_thuc:\"[A] + [B]\"},\r\n\t{ma_so:'B',cong_thuc:\"[C] + [A]+[Z]\"},\r\n\t{ma_so:'Z',cong_thuc:\"[A]+[M]\"}\r\n]\r\nstp.calcGrid(tb,\"gia_tri,gia_tri_2\",function(data){\r\n\tconsole.log(data);\r\n})\r\n```\r\n## License\r\n\r\nMIT\r\n",
+  "readmeFilename": "README.md",
+  "_id": "stp-utils@0.1.0",
+  "_shasum": "a2aefb03e23167ebd54659b3cf943db8fa793a60",
+  "_from": "stp-utils@latest"
+}
