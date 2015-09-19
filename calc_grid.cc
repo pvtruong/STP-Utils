@@ -12,6 +12,7 @@ class ColumnValue {
 public:
 	string name,cong_thuc;
 	double value = 0;
+	Persistent<Function,CopyablePersistentTraits<Function>> callback;
 	ColumnValue(string name, string cong_thuc="", double value=0) {
 		this->name = name;
 		this->cong_thuc = cong_thuc;
@@ -23,13 +24,10 @@ class Row {
 public:
 	string ma_so,cong_thuc;
 	map<string,ColumnValue> gia_tris;
-	Row(string ma_so,string cong_thuc,map<string,double> col_gia_tris) {
+	Row(string ma_so,string cong_thuc,map<string,ColumnValue> col_gia_tris) {
 		this->ma_so = ma_so;
 		this->cong_thuc = cong_thuc;
-		for (map<string,double>::iterator v = col_gia_tris.begin(); v != col_gia_tris.end(); v++) {
-			ColumnValue gia_tri(v->first, cong_thuc, v->second);
-			this->gia_tris[v->first] = gia_tri;
-		}
+		this->gia_tris = col_gia_tris;
 	}
 	Row(){}
 	static void split(string str, char delim,vector<string> &v) {
@@ -88,6 +86,7 @@ struct AsyncData {
 
 void worker(uv_work_t *req) {
 	auto asyncData = reinterpret_cast<AsyncData *>(req->data);
+	
 	//prepair formula
 	bool cont = true;
 	int n = 0;
@@ -135,6 +134,7 @@ void callCallback(uv_work_t *req,int status) {
 	
 	Local<Object> obj = data->ToObject();
 	Local<String> field_ma_so = String::NewFromUtf8(isolate, "ma_so");
+	
 	//fill value
 	for (int i = 0; i < asyncData->rows.size(); i++) {
 		Local<Object> item = obj->Get(i)->ToObject();
@@ -142,18 +142,21 @@ void callCallback(uv_work_t *req,int status) {
 		string ma_so = *o_ma_so;
 		for (map<string, ColumnValue>::iterator it = asyncData->rows[ma_so].gia_tris.begin(); it != asyncData->rows[ma_so].gia_tris.end(); it++) {
 			double value = it->second.value;
+			Local<Value> arr_val[] = {Null(isolate),item};
 			
 			if (it->second.cong_thuc != "") {
 				TryCatch trycatch;
 				Local<Script> script = Script::Compile(String::NewFromUtf8(isolate, it->second.cong_thuc.c_str()));
 
 				Local<Value> kq = script->Run();
+			
 
 				if (kq.IsEmpty()) {
 					Local<Value> exception = trycatch.Exception();
 					String::Utf8Value exception_str(exception);
 					printf("Exception: %s\n ", *exception_str);
 					value = 0;
+					arr_val[0] = exception;
 				}
 				else {
 					if (kq->IsNumber()) {
@@ -165,16 +168,15 @@ void callCallback(uv_work_t *req,int status) {
 					else {
 						value = 0;
 					}
-
 				}
 				
 			}
-			
 			item->Set(String::NewFromUtf8(isolate, it->first.c_str()), Number::New(isolate, value));
+			Local<Function> cb = Local<Function>::New(isolate, it->second.callback);
+			cb->Call(isolate->GetCurrentContext()->Global(), 2, arr_val);
 		}
 
 	}
-	
 	//call callback
 	data = Local<Value>::New(isolate, obj);
 	Handle<Value> arr_value[] = { data };
@@ -183,6 +185,9 @@ void callCallback(uv_work_t *req,int status) {
 	delete asyncData;
 	delete req;
 
+}
+void fn(const FunctionCallbackInfo<Value>& args){
+	//printf("not callback function for each row\n");
 }
 void calcGrid2(const FunctionCallbackInfo<Value>& args) {
 
@@ -209,15 +214,35 @@ void calcGrid2(const FunctionCallbackInfo<Value>& args) {
 	map<string, Row> rows;
 	Local<String> field_cong_thuc = String::NewFromUtf8(isolate, "cong_thuc");
 	Local<String> field_ma_so = String::NewFromUtf8(isolate, "ma_so");
+	map<string, Local<Function>> gia_tris;
+	if (args[1]->IsObject()) {
+		Local<Object> obj = args[1]->ToObject();
 
-	vector<string> gia_tris;
-	if (args[1]->IsString()) {
-		String::Utf8Value col_gia_tris(args[1]->ToString());
-		Row::split(*col_gia_tris, ',', gia_tris);
+		Local<Array> properties = obj->GetPropertyNames();
+		for (int i = 0; i < properties->Length(); i++) {
+			Local<String> key = properties->Get(i)->ToString();
+			String::Utf8Value utf_value(key);
+			Local<Function> calb = Local<Function>::Cast(obj->Get(key));
+			gia_tris[*utf_value] = calb;
+		}
+
+
 	}
 	else {
-		Row::split("gia_tri", ',', gia_tris);
+		vector<string> _gia_tris;
+		if (args[1]->IsString()) {
+			String::Utf8Value col_gia_tris(args[1]->ToString());
+			Row::split(*col_gia_tris, ',', _gia_tris);
+		}
+		else {
+			Row::split("gia_tri", ',', _gia_tris);
+		}
+		for (vector<string>::iterator g = _gia_tris.begin(); g < _gia_tris.end(); g++) {
+			Local<FunctionTemplate> tmpFunction = FunctionTemplate::New(isolate, fn);
+			gia_tris[*g] = tmpFunction->GetFunction();
+		}
 	}
+	
 
 	int length = obj->Get(String::NewFromUtf8(isolate, "length"))->IntegerValue();
 	for (int i = 0; i < length; i++) {
@@ -231,20 +256,25 @@ void calcGrid2(const FunctionCallbackInfo<Value>& args) {
 			String::Utf8Value o_cong_thuc(item->Get(field_cong_thuc)->ToString());
 			cong_thuc = *o_cong_thuc;
 		}
-		map<string, double> col_gia_tris;
-		for (vector<string>::iterator it = gia_tris.begin(); it != gia_tris.end(); it++) {
+		map<string, ColumnValue> col_gia_tris;
+		for (map<string,Local<Function>>::iterator it = gia_tris.begin(); it != gia_tris.end(); it++) {
 			double gia_tri = 0;
-			Local<Value> lv = item->Get(String::NewFromUtf8(isolate, (*it).c_str()));
+			string key = it->first;
+			Local<Value> lv = item->Get(String::NewFromUtf8(isolate, key.c_str()));
 			if (lv->IsNumber()) {
 				gia_tri = lv->NumberValue();
 			}
-			col_gia_tris[*it] = gia_tri;
+			ColumnValue col(key,cong_thuc,gia_tri);
+			col.callback.Reset(isolate,it->second);
+			//col.callback = it->second;
+			col_gia_tris[key] = col;
 		}
 
 
 		Row r(ma_so, cong_thuc, col_gia_tris);
 		rows[ma_so] = r;
 	}
+	
 	//get callback function
 	Local<Function> l_callback = Local<Function>::Cast(args[2]);
 	//create async data
@@ -252,12 +282,35 @@ void calcGrid2(const FunctionCallbackInfo<Value>& args) {
 	asyncData->callback.Reset(isolate, l_callback);
 	asyncData->data.Reset(isolate, l_data);
 	asyncData->rows = rows;
+	
 	//run async
 	uv_work_t *req = new uv_work_t;
 	req->data = asyncData;
 	uv_queue_work(uv_default_loop(), req, worker, callCallback);
+	
+}
+void parse(const FunctionCallbackInfo<Value>& args) {
+	Isolate *isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
+	if (args.Length() == 0 || !args[0]->IsString()) {
+		return args.GetReturnValue().Set(Null(isolate));
+	}
+	Local<String> local_str_parse = args[0]->ToString();
+	String::Utf8Value u_str_parse(local_str_parse);
+	string str_parse = *u_str_parse;
+	str_parse = "eval(" + str_parse + ")";
+	TryCatch tryCatch;
+	Local<Script> scr = Script::Compile(String::NewFromUtf8(isolate,str_parse.c_str()));
+	Local<Value> kq = scr->Run();
+	if (kq.IsEmpty()) {
+		Local<Value> exception = tryCatch.Exception();
+		String::Utf8Value exception_str(exception);
+		printf("STP.parse.exception: %s, %s\n ", *exception_str, *u_str_parse);
+	}
+	args.GetReturnValue().Set(kq);
 }
 void init(Handle<Object> exports){
 	NODE_SET_METHOD(exports,"calcGrid",calcGrid2);
+	NODE_SET_METHOD(exports, "parse", parse);
 }
 NODE_MODULE(stp,init)
