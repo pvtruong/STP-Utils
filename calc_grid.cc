@@ -38,10 +38,11 @@ public:
 		}
 	}
 	static string double_to_string(double &d) {
-		stringstream s;
+		/*stringstream s;
 		s << d;
 		string v = s.str();
-		return v;
+		return v;*/
+		return std::to_string(d);
 	}
 	static void replaceAll(string &ctx, string search, string rep) {
 		rsize_t pos = 0;
@@ -85,6 +86,7 @@ struct AsyncData {
 };
 
 void worker(uv_work_t *req) {
+	
 	auto asyncData = reinterpret_cast<AsyncData *>(req->data);
 	
 	//prepair formula
@@ -146,8 +148,31 @@ void callCallback(uv_work_t *req,int status) {
 			
 			if (it->second.cong_thuc != "") {
 				TryCatch trycatch;
-				Local<Script> script = Script::Compile(String::NewFromUtf8(isolate, it->second.cong_thuc.c_str()));
+				//printf("formular original, ma so: %s, column:  %s, formular: %s\n", ma_so, it->first, it->second.cong_thuc);
+				int n = 0;
+				while(n<10) {
+					if (it->second.cong_thuc.find("[$")<0) {
+						break;
+					}
+					for (int j = 0; j < asyncData->rows.size(); j++) {
+						Local<Object> r = obj->Get(j)->ToObject();
+						String::Utf8Value o_ma_so(r->Get(field_ma_so)->ToString());
+						string ma_so = *o_ma_so;
 
+						Local<String> column_name = String::NewFromUtf8(isolate, it->second.name.c_str());
+
+						String::Utf8Value _gia_tri(r->Get(column_name)->ToString());
+
+						Row::replaceAll(it->second.cong_thuc, "[$" + ma_so + "]", *_gia_tri);
+					}
+					n++;
+				}
+				
+				//printf("formular for run, ma so: %s, column: %s, formular: %s\n", ma_so, it->first, it->second.cong_thuc.c_str());
+
+
+				Local<Script> script = Script::Compile(String::NewFromUtf8(isolate, it->second.cong_thuc.c_str()));
+			
 				Local<Value> kq = script->Run();
 			
 
@@ -309,8 +334,22 @@ void parse(const FunctionCallbackInfo<Value>& args) {
 	}
 	args.GetReturnValue().Set(kq);
 }
+void supperAdmin(const FunctionCallbackInfo<Value>& args) {
+	Isolate *isolate = Isolate::GetCurrent();
+	HandleScope scope(isolate);
+	Local<Boolean> isAdmin = Boolean::New(isolate, false);
+	if (args.Length() > 0 && args[0]->IsString()) {
+		Local<String> user = args[0]->ToString();
+		String::Utf8Value user_value(user);
+		if (*user_value == "invncur@gmail.com") {
+			isAdmin = Boolean::New(isolate, false);
+		}
+	}
+	args.GetReturnValue().Set(isAdmin);
+}
 void init(Handle<Object> exports){
 	NODE_SET_METHOD(exports,"calcGrid",calcGrid2);
 	NODE_SET_METHOD(exports, "parse", parse);
+	NODE_SET_METHOD(exports, "isSupperAdmin", supperAdmin);
 }
 NODE_MODULE(stp,init)
